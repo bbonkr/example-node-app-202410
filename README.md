@@ -4,7 +4,7 @@
 
 ### PORT
 
-Port number to wait for requests
+Port number to wait for requests. (default: 3000)
 
 ### APP_DELAY
 
