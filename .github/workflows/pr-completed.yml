@@ -1,0 +1,95 @@
+name: "PR completed"
+
+on: # rebuild any PRs and main branch changes
+  pull_request:
+    types: ["closed"]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  NODE_VERSION: 20.x
+
+jobs:
+  build: # make sure build/ci work properly
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: "Set Node.js ${{ env.NODE_VERSION }}"
+        uses: actions/setup-node@v4
+        with:
+          node-version: "${{ env.NODE_VERSION }}"
+
+      - name: Install dependencies
+        run: |
+          npm install
+
+      - name: Run build script
+        run: |
+          npm run build
+
+      - name: Logging
+        run: |
+          echo "👍 There is no error. "
+
+  create-tag:
+    needs: [build]
+    runs-on: ubuntu-latest
+    outputs:
+      next_version: ${{ steps.next_version_proposal.outputs.next_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: "get next version name"
+        uses: bbonkr/next-version-proposal-action@v1
+        id: next_version_proposal
+        with:
+          github_token: ${{ github.token }}
+          pr: ${{ github.event.pull_request.number }}
+          major_labels: "major,next"
+          minor_labels: "enhancement,feature"
+          next_version_prefix: "v"
+
+      - name: "Create tag"
+        uses: rickstaa/action-create-tag@v1
+        if: ${{ steps.next_version_proposal.outputs.next_version != '' }}
+        with:
+          tag: "${{ steps.next_version_proposal.outputs.next_version }}"
+          message: "New release ${{ steps.next_version_proposal.outputs.next_version }}"
+          commit_sha: ${{ github.sha }}
+
+      - name: git tag skipped
+        if: ${{ steps.next_version_proposal.outputs.next_version == '' }}
+        run: |
+          echo "Next version tag is empty."
+          exit 1
+
+  create-release:
+    needs: [create-tag]
+    runs-on: ubuntu-latest
+    if: ${{ needs.create-tag.outputs.next_version != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Logging
+        run: |
+          echo "next_version=${{ needs.create-tag.outputs.next_version }}"
+
+      - name: create GitHub Release
+        id: release_drafter
+        uses: release-drafter/release-drafter@v6
+        if: ${{ needs.create-tag.outputs.next_version != '' }}
+        with:
+          config-name: release-drafter.yml
+          version: ${{ needs.create-tag.outputs.next_version }}
+          publish: false
+          prerelease: false
+          disable-autolabeler: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
